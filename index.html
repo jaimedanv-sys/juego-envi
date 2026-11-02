@@ -1,0 +1,1206 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<meta name="theme-color" content="#2b2f33">
+<meta name="description" content="Guardianes ENVI: juego de capacitación ambiental. Inspección simulada de un almacén temporal de residuos peligrosos.">
+<title>Guardianes ENVI · Inspección</title>
+<style>
+  :root {
+    --amarillo: #ffc400;
+    --amarillo-osc: #d9a300;
+    --gris-osc: #23272b;
+    --gris: #3a4047;
+    --gris-medio: #5b636b;
+    --gris-claro: #d5d9dd;
+    --verde: #2e9e5b;
+    --verde-osc: #1f7442;
+    --rojo: #d64541;
+    --blanco: #f6f7f4;
+    --sombra: 0 10px 30px rgba(0,0,0,.35);
+    --radio: 18px;
+  }
+  * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+  html, body {
+    margin: 0; height: 100%; overflow: hidden;
+    background: var(--gris-osc); color: var(--blanco);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    -webkit-user-select: none; user-select: none;
+    overscroll-behavior: none;
+  }
+  #escena { position: fixed; inset: 0; touch-action: none; }
+  #escena canvas { display: block; width: 100%; height: 100%; }
+  .oculto { display: none !important; }
+
+  /* ---------- HUD ---------- */
+  #hud {
+    position: fixed; left: 0; right: 0; top: 0;
+    padding: calc(10px + env(safe-area-inset-top)) 12px 0;
+    display: flex; flex-wrap: wrap; gap: 8px; justify-content: space-between; align-items: flex-start;
+    pointer-events: none; z-index: 5;
+  }
+  .pastilla {
+    background: rgba(35,39,43,.92); border: 3px solid var(--amarillo);
+    border-radius: 14px; padding: 6px 14px; box-shadow: var(--sombra);
+    display: flex; flex-direction: column; line-height: 1.1;
+  }
+  .pastilla small { font-size: 13px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--gris-claro); }
+  .pastilla b { font-size: 26px; font-weight: 900; }
+  #hud-multa b { color: var(--amarillo); }
+  #hud-multa.sube { animation: sube .6s ease; }
+  @keyframes sube { 0%{transform:scale(1)} 30%{transform:scale(1.15); border-color: var(--rojo)} 100%{transform:scale(1)} }
+  .hud-der { display: flex; gap: 8px; }
+  #hud-errores .puntos { display: flex; gap: 6px; margin-top: 4px; }
+  #hud-errores .punto { width: 20px; height: 20px; border-radius: 50%; border: 3px solid var(--gris-claro); }
+  #hud-errores .punto.lleno { background: var(--rojo); border-color: var(--rojo); }
+  #pista {
+    position: fixed; left: 50%; transform: translateX(-50%);
+    bottom: calc(18px + env(safe-area-inset-bottom));
+    background: rgba(35,39,43,.88); border-radius: 999px; padding: 10px 18px;
+    font-size: 17px; font-weight: 700; white-space: nowrap; pointer-events: none; z-index: 4;
+    border: 2px solid rgba(255,196,0,.6);
+  }
+  body.tactil #pista { bottom: auto; top: calc(84px + env(safe-area-inset-top)); font-size: 15px; transition: opacity .6s; }
+  #pista.desvanecer { opacity: 0; }
+  @media (max-width: 520px) {
+    #hud { flex-wrap: nowrap; gap: 6px; padding-left: 8px; padding-right: 8px; }
+    .hud-der { gap: 6px; }
+    .pastilla { padding: 5px 10px; border-width: 2px; border-radius: 12px; }
+    .pastilla small { font-size: 11px; }
+    .pastilla b { font-size: 21px; }
+    #hud-errores .punto { width: 16px; height: 16px; border-width: 2px; }
+  }
+
+  /* ---------- Joystick ---------- */
+  #joy {
+    position: fixed; z-index: 6; touch-action: none;
+    left: calc(24px + env(safe-area-inset-left)); bottom: calc(28px + env(safe-area-inset-bottom));
+    width: 150px; height: 150px; border-radius: 50%;
+    background: rgba(35,39,43,.45); border: 4px solid rgba(255,196,0,.85);
+    box-shadow: var(--sombra);
+  }
+  #knob {
+    position: absolute; left: 50%; top: 50%; width: 66px; height: 66px; border-radius: 50%;
+    transform: translate(-50%,-50%); background: var(--amarillo); border: 4px solid var(--gris-osc);
+    pointer-events: none;
+  }
+
+  /* ---------- Pantallas ---------- */
+  .pantalla {
+    position: fixed; inset: 0; z-index: 10;
+    display: flex; align-items: center; justify-content: center;
+    padding: calc(16px + env(safe-area-inset-top)) 16px calc(16px + env(safe-area-inset-bottom));
+    background: rgba(25,28,31,.78);
+    -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+    overflow-y: auto;
+  }
+  .panel {
+    width: 100%; max-width: 560px; margin: auto;
+    background: var(--gris); border-radius: var(--radio); box-shadow: var(--sombra);
+    border-top: 12px solid var(--amarillo); padding: 24px 22px 22px; text-align: center;
+  }
+  .cinta {
+    height: 16px; border-radius: 6px; margin: 0 0 18px;
+    background: repeating-linear-gradient(-45deg, var(--amarillo) 0 16px, var(--gris-osc) 16px 32px);
+  }
+  .kicker { font-size: 15px; font-weight: 800; letter-spacing: .08em; text-transform: uppercase; color: var(--amarillo); margin: 0 0 6px; }
+  h1 { font-size: clamp(38px, 11vw, 60px); line-height: 1; margin: 0 0 10px; font-weight: 900; }
+  h1 .verde { color: #57c785; }
+  .sub { font-size: 20px; margin: 0 0 18px; color: var(--gris-claro); font-weight: 600; }
+  .instrucciones { text-align: left; font-size: 18px; line-height: 1.4; margin: 0 0 20px; padding: 0; list-style: none; }
+  .instrucciones li { display: flex; gap: 12px; align-items: flex-start; padding: 8px 0; border-bottom: 1px solid rgba(255,255,255,.08); }
+  .instrucciones .ico {
+    flex: 0 0 34px; height: 34px; border-radius: 10px; background: var(--amarillo); color: var(--gris-osc);
+    font-weight: 900; display: flex; align-items: center; justify-content: center; font-size: 20px;
+  }
+  .aviso { font-size: 14px; color: var(--gris-claro); margin: 14px 0 0; opacity: .85; }
+
+  .btn {
+    display: block; width: 100%; min-height: 64px; border: 0; border-radius: 16px;
+    font: inherit; font-size: 22px; font-weight: 900; cursor: pointer;
+    padding: 14px 18px; box-shadow: 0 6px 0 rgba(0,0,0,.35);
+    transition: transform .08s ease, box-shadow .08s ease;
+  }
+  .btn:active { transform: translateY(4px); box-shadow: 0 2px 0 rgba(0,0,0,.35); }
+  .btn:focus-visible { outline: 4px solid #fff; outline-offset: 3px; }
+  .btn-primario { background: var(--amarillo); color: var(--gris-osc); }
+  .btn-verde { background: var(--verde); color: #fff; }
+
+  /* ---------- Tarjeta del inspector ---------- */
+  #tarjeta { align-items: flex-end; background: rgba(25,28,31,.55); }
+  #tarjeta .panel { text-align: left; max-height: calc(100% - 8px); overflow-y: auto; padding: 18px 18px 20px; }
+  @media (min-height: 700px) { #tarjeta { align-items: center; } }
+  .tarjeta-cab { display: flex; gap: 14px; align-items: center; margin-bottom: 12px; }
+  .avatar { flex: 0 0 64px; width: 64px; height: 64px; border-radius: 50%; background: #c9b48a; border: 3px solid var(--amarillo); overflow: hidden; }
+  .tarjeta-cab h2 { margin: 2px 0 0; font-size: 24px; line-height: 1.15; }
+  .tarjeta-cab .kicker { margin: 0; font-size: 13px; }
+  #t-pregunta { font-size: 20px; line-height: 1.35; font-weight: 700; margin: 6px 0 14px; }
+  #t-opciones { display: flex; flex-direction: column; gap: 10px; }
+  .opcion {
+    display: flex; gap: 12px; align-items: flex-start; text-align: left;
+    width: 100%; min-height: 64px; padding: 12px 14px; border-radius: 14px;
+    background: var(--gris-osc); color: var(--blanco); border: 3px solid var(--gris-medio);
+    font: inherit; font-size: 18px; line-height: 1.3; font-weight: 600; cursor: pointer;
+  }
+  .opcion .letra {
+    flex: 0 0 36px; height: 36px; border-radius: 10px; background: var(--amarillo); color: var(--gris-osc);
+    font-weight: 900; font-size: 20px; display: flex; align-items: center; justify-content: center;
+  }
+  @media (hover: hover) { .opcion:hover:not(:disabled) { border-color: var(--amarillo); } }
+  .opcion:focus-visible { outline: 3px solid #fff; outline-offset: 2px; }
+  .opcion:disabled { cursor: default; opacity: .55; }
+  .opcion.correcta { border-color: var(--verde); background: #1f3b2b; opacity: 1; }
+  .opcion.correcta .letra { background: var(--verde); color: #fff; }
+  .opcion.incorrecta { border-color: var(--rojo); background: #47201f; opacity: 1; }
+  .opcion.incorrecta .letra { background: var(--rojo); color: #fff; }
+  #t-feedback { margin: 14px 0; padding: 14px; border-radius: 14px; background: var(--gris-osc); border-left: 8px solid var(--verde); }
+  #t-feedback.mal { border-left-color: var(--rojo); }
+  #t-res { font-size: 22px; display: block; margin-bottom: 6px; }
+  #t-feedback.bien #t-res { color: #6fd69b; }
+  #t-feedback.mal #t-res { color: #ff8a85; }
+  #t-exp { font-size: 18px; line-height: 1.4; margin: 0 0 8px; }
+  #t-fund { font-size: 14px; color: var(--gris-claro); margin: 0; }
+
+  /* ---------- Resultados ---------- */
+  #clausura .panel { border-top-color: var(--rojo); }
+  .sello {
+    display: inline-block; font-size: clamp(34px, 10vw, 68px); font-weight: 900; letter-spacing: .04em;
+    color: var(--rojo); border: 6px solid var(--rojo); border-radius: 12px; padding: 4px 16px; margin: 4px 0 14px; max-width: 100%;
+    transform: rotate(-4deg); background: rgba(214,69,65,.08);
+  }
+  .resumen { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin: 16px 0 20px; }
+  .dato { background: var(--gris-osc); border-radius: 14px; padding: 12px 8px; }
+  .dato small { display: block; font-size: 14px; font-weight: 700; color: var(--gris-claro); text-transform: uppercase; letter-spacing: .04em; }
+  .dato b { display: block; font-size: 28px; font-weight: 900; margin-top: 4px; }
+  .dato.ancho { grid-column: 1 / -1; }
+  .dato .verde { color: #6fd69b; }
+  .dato .amarillo { color: var(--amarillo); }
+  .dato .rojo { color: #ff8a85; }
+  .texto { font-size: 18px; line-height: 1.4; color: var(--gris-claro); margin: 0 0 6px; }
+  #lista-resultados { list-style: none; padding: 0; margin: 0 0 18px; text-align: left; font-size: 17px; }
+  #lista-resultados li { padding: 8px 4px; border-bottom: 1px solid rgba(255,255,255,.08); display: flex; gap: 10px; align-items: center; }
+  #lista-resultados .ok { color: #6fd69b; font-weight: 900; }
+  #lista-resultados .no { color: #ff8a85; font-weight: 900; }
+  #error-carga .panel { border-top-color: var(--rojo); }
+</style>
+</head>
+<body>
+<div id="escena" aria-hidden="true"></div>
+
+<!-- HUD -->
+<div id="hud" class="oculto">
+  <div class="pastilla" id="hud-multa"><small>Multa estimada</small><b id="multa">$0</b></div>
+  <div class="hud-der">
+    <div class="pastilla"><small>Hallazgos</small><b id="contador">0/5</b></div>
+    <div class="pastilla" id="hud-errores"><small>Errores</small><div class="puntos"><span class="punto"></span><span class="punto"></span><span class="punto"></span></div></div>
+  </div>
+</div>
+<div id="pista" class="oculto">Busca los signos <b style="color:var(--amarillo)">!</b> y acércate</div>
+<div id="joy" class="oculto" aria-label="Joystick"><div id="knob"></div></div>
+
+<!-- Pantalla de inicio -->
+<div id="inicio" class="pantalla">
+  <div class="panel">
+    <div class="cinta"></div>
+    <p class="kicker">Capacitación ambiental EHS</p>
+    <h1>Guardianes <span class="verde">ENVI</span></h1>
+    <p class="sub">Inspección PROFEPA · Almacén temporal de residuos peligrosos</p>
+    <ul class="instrucciones">
+      <li><span class="ico">1</span><span id="txt-mover">Muévete con <b>WASD</b> o las <b>flechas</b>.</span></li>
+      <li><span class="ico">!</span><span>Encuentra los <b>5 hallazgos</b> marcados con un signo de admiración.</span></li>
+      <li><span class="ico">?</span><span>Responde al inspector. Cada error suma a la <b>multa estimada</b>.</span></li>
+      <li><span class="ico">3</span><span>Con <b>3 errores</b> el almacén queda en <b>clausura</b>.</span></li>
+    </ul>
+    <button class="btn btn-primario" id="btn-iniciar">Iniciar inspección</button>
+    <p class="aviso">Simulación educativa. No es material oficial de PROFEPA; los montos de multa son ilustrativos.</p>
+  </div>
+</div>
+
+<!-- Tarjeta del inspector -->
+<div id="tarjeta" class="pantalla oculto" role="dialog" aria-modal="true" aria-labelledby="t-titulo">
+  <div class="panel">
+    <div class="tarjeta-cab">
+      <div class="avatar" aria-hidden="true">
+        <svg viewBox="0 0 64 64" width="64" height="64">
+          <rect width="64" height="64" fill="#8fb3c9"/>
+          <rect x="14" y="46" width="36" height="22" rx="8" fill="#b59b6a"/>
+          <rect x="29" y="46" width="6" height="18" fill="#7d6a45"/>
+          <circle cx="32" cy="32" r="13" fill="#e2b58c"/>
+          <path d="M17 27 Q32 10 47 27 Z" fill="#6b5b3e"/>
+          <rect x="15" y="25" width="34" height="5" rx="2" fill="#4f4330"/>
+          <circle cx="27" cy="33" r="2" fill="#23272b"/><circle cx="37" cy="33" r="2" fill="#23272b"/>
+          <path d="M27 39 Q32 42 37 39" stroke="#23272b" stroke-width="2" fill="none" stroke-linecap="round"/>
+        </svg>
+      </div>
+      <div>
+        <p class="kicker">Inspector · Hallazgo <span id="t-num">1</span> de 5</p>
+        <h2 id="t-titulo">Hallazgo</h2>
+      </div>
+    </div>
+    <p id="t-pregunta"></p>
+    <div id="t-opciones"></div>
+    <div id="t-feedback" class="oculto">
+      <strong id="t-res"></strong>
+      <p id="t-exp"></p>
+      <p id="t-fund"></p>
+    </div>
+    <button class="btn btn-primario oculto" id="t-continuar">Continuar</button>
+  </div>
+</div>
+
+<!-- Clausura (game over) -->
+<div id="clausura" class="pantalla oculto">
+  <div class="panel">
+    <div class="cinta"></div>
+    <div class="sello">CLAUSURA</div>
+    <p class="texto">Acumulaste <b>3 errores</b>. El inspector impuso la clausura temporal del almacén.</p>
+    <div class="resumen">
+      <div class="dato"><small>Aciertos</small><b class="verde" id="c-aciertos">0</b></div>
+      <div class="dato"><small>Hallazgos</small><b id="c-hallazgos">0/5</b></div>
+      <div class="dato ancho"><small>Multa estimada</small><b class="rojo" id="c-multa">$0</b></div>
+    </div>
+    <button class="btn btn-primario" id="btn-reintentar">Reintentar inspección</button>
+  </div>
+</div>
+
+<!-- Inspección aprobada -->
+<div id="aprobada" class="pantalla oculto">
+  <div class="panel" style="border-top-color: var(--verde)">
+    <p class="kicker" style="color:#6fd69b">Resultado de la visita</p>
+    <h1 style="font-size:clamp(32px,9vw,48px)">¡Inspección aprobada!</h1>
+    <div class="resumen">
+      <div class="dato"><small>Aciertos</small><b class="verde" id="a-aciertos">0/5</b></div>
+      <div class="dato"><small>Errores</small><b class="rojo" id="a-errores">0</b></div>
+      <div class="dato ancho"><small>Multa evitada</small><b class="verde" id="a-evitada">$0</b></div>
+      <div class="dato ancho"><small>Multa recibida</small><b class="amarillo" id="a-multa">$0</b></div>
+    </div>
+    <ul id="lista-resultados"></ul>
+    <button class="btn btn-verde" id="btn-otra">Jugar de nuevo</button>
+  </div>
+</div>
+
+<!-- Error de carga del motor 3D -->
+<div id="error-carga" class="pantalla oculto">
+  <div class="panel">
+    <h2 style="font-size:28px;margin:0 0 10px">No se pudo cargar el juego</h2>
+    <p class="texto">Revisa tu conexión a internet y vuelve a abrir la página. El motor 3D (Three.js) se descarga de un CDN.</p>
+    <button class="btn btn-primario" onclick="location.reload()">Recargar</button>
+  </div>
+</div>
+
+<script>
+  // Si el módulo de Three.js no carga (sin internet / CDN caído) mostramos un aviso en lugar de una pantalla vacía.
+  setTimeout(function () {
+    if (!window.__enviListo) {
+      document.getElementById('inicio').classList.add('oculto');
+      document.getElementById('error-carga').classList.remove('oculto');
+    }
+  }, 12000);
+</script>
+
+<script type="module">
+import * as THREE from 'https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.min.js';
+
+/* =====================================================================
+   DATOS DEL JUEGO
+   ===================================================================== */
+const MAX_ERRORES = 3;
+const RADIO_ACTIVACION = 2.2;   // distancia (unidades) a la que se abre la tarjeta
+const VELOCIDAD = 4.6;          // unidades por segundo
+
+const HALLAZGOS = [
+  {
+    titulo: 'Tambo sin etiqueta',
+    pos: [-7.4, -6.5], altura: 2.7, multa: 180000,
+    pregunta: 'Este tambo con residuo peligroso no tiene etiqueta. ¿Qué información debe llevar como mínimo?',
+    opciones: [
+      'Nombre del generador, nombre del residuo, sus características de peligrosidad (CRETIB) y la fecha de ingreso al almacén.',
+      'Solo la palabra “BASURA” pintada con aerosol para que nadie lo use.',
+      'Nada: basta con que el tambo esté bien tapado.'
+    ],
+    correcta: 0,
+    explicacion: 'Cada envase debe identificarse para saber qué contiene, qué riesgo tiene y desde cuándo está almacenado (por lo general no más de 6 meses).',
+    fundamento: 'Fundamento: Reglamento de la LGPGIR, art. 46 · NOM-052-SEMARNAT-2005'
+  },
+  {
+    titulo: 'Falta charola antiderrames',
+    pos: [7.6, -7.2], altura: 2.7, multa: 250000,
+    pregunta: 'Los tambos de aceite usado están directo en el piso y ya hay una mancha. ¿Qué medida falta?',
+    opciones: [
+      'Cubrir la mancha con cartón para que no se vea.',
+      'Colocar los tambos sobre una charola o dique antiderrames capaz de contener una fuga.',
+      'Lavar el piso con agua y mandarla al drenaje.'
+    ],
+    correcta: 1,
+    explicacion: 'El almacén debe contar con dispositivos para contener derrames (charolas, pretiles, muros o fosas). Lavar hacia el drenaje sería otra infracción: contaminaría el agua.',
+    fundamento: 'Fundamento: Reglamento de la LGPGIR, art. 82'
+  },
+  {
+    titulo: 'Bitácora incompleta',
+    pos: [8.5, 2.5], altura: 2.6, multa: 120000,
+    pregunta: 'La bitácora de generación tiene hojas en blanco: faltan cantidades y fechas de salida. ¿Qué es lo correcto?',
+    opciones: [
+      'Llenarla de memoria una vez al año, cuando se presente la COA.',
+      'No hace falta: con guardar los manifiestos es suficiente.',
+      'Registrar cada residuo: cantidad, área que lo generó, fechas de entrada y salida, y la empresa autorizada que lo recolectó.'
+    ],
+    correcta: 2,
+    explicacion: 'La bitácora debe estar al día y conservarse. Los manifiestos la complementan, pero no la sustituyen.',
+    fundamento: 'Fundamento: Reglamento de la LGPGIR, art. 71'
+  },
+  {
+    titulo: 'Extintor obstruido',
+    pos: [-11.3, 1.5], altura: 2.9, multa: 90000,
+    pregunta: 'Hay cajas apiladas frente al extintor del almacén. ¿Qué se debe hacer?',
+    opciones: [
+      'Retirar las cajas: el extintor debe estar visible, señalizado y libre de obstáculos.',
+      'Nada, mientras el personal sepa dónde está.',
+      'Guardarlo en un gabinete con candado para que no se pierda.'
+    ],
+    correcta: 0,
+    explicacion: 'En una emergencia cada segundo cuenta. El extintor también se revisa cada mes (presión, sello, etiqueta) y se coloca a no más de 1.50 m del piso.',
+    fundamento: 'Fundamento: NOM-002-STPS-2010 (prevención y protección contra incendios)'
+  },
+  {
+    titulo: 'Falta el letrero del almacén',
+    pos: [1.6, -8.6], altura: 3.7, multa: 60000,
+    pregunta: 'La entrada no tiene ningún letrero. ¿Qué debe colocarse?',
+    opciones: [
+      'Nada: todos en la planta saben qué hay adentro.',
+      'Un papel escrito a mano, pegado por dentro de la puerta.',
+      'Un letrero visible de “Almacén temporal de residuos peligrosos”, con señales de peligro y de acceso restringido.'
+    ],
+    correcta: 2,
+    explicacion: 'El almacén debe tener señalamientos y letreros sobre la peligrosidad de los residuos, en lugares y formas visibles, para que cualquier persona identifique el riesgo.',
+    fundamento: 'Fundamento: Reglamento de la LGPGIR, art. 82 · NOM-026-STPS-2008'
+  }
+];
+
+/* =====================================================================
+   ESTADO
+   ===================================================================== */
+const estado = {
+  fase: 'inicio',           // inicio | jugando | tarjeta | fin
+  multa: 0,
+  errores: 0,
+  aciertos: 0,
+  resueltos: [],            // por hallazgo: null | 'bien' | 'mal'
+  actual: -1,
+  ordenOpciones: []         // orden barajado de opciones por hallazgo
+};
+
+const $ = (s) => document.querySelector(s);
+const formatoDinero = (n) => '$' + Math.round(n).toLocaleString('es-MX');
+const esTactil = ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+if (esTactil) {
+  document.body.classList.add('tactil');
+  $('#txt-mover').innerHTML = 'Muévete con el <b>joystick</b> (abajo a la izquierda).';
+}
+
+/* =====================================================================
+   THREE.JS: RENDER, CÁMARA, LUCES
+   ===================================================================== */
+const contenedor = $('#escena');
+const renderer = new THREE.WebGLRenderer({ antialias: true });
+renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+renderer.shadowMap.enabled = true;
+renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+contenedor.appendChild(renderer.domElement);
+
+const scene = new THREE.Scene();
+scene.background = new THREE.Color(0x8fb3c9);
+
+const camara = new THREE.OrthographicCamera(-10, 10, 10, -10, 0.1, 200);
+const OFFSET_CAMARA = new THREE.Vector3(14, 16, 14);
+const objetivoCamara = new THREE.Vector3(0, 0, 4);
+
+scene.add(new THREE.HemisphereLight(0xffffff, 0x6b6f5a, 1.6));
+const sol = new THREE.DirectionalLight(0xfff3dc, 2.4);
+sol.position.set(9, 18, 7);
+sol.castShadow = true;
+sol.shadow.mapSize.set(2048, 2048);
+Object.assign(sol.shadow.camera, { left: -18, right: 18, top: 18, bottom: -18, near: 1, far: 60 });
+sol.shadow.bias = -0.0008;
+scene.add(sol);
+
+/* ---------- Ayudantes de geometría low-poly ---------- */
+const cacheMat = new Map();
+function mat(color) {
+  if (!cacheMat.has(color)) cacheMat.set(color, new THREE.MeshLambertMaterial({ color, flatShading: true }));
+  return cacheMat.get(color);
+}
+function malla(geo, material, x, y, z, padre = scene, sombras = true) {
+  const m = new THREE.Mesh(geo, typeof material === 'number' ? mat(material) : material);
+  m.position.set(x, y, z);
+  m.castShadow = sombras; m.receiveShadow = true;
+  padre.add(m);
+  return m;
+}
+const caja = (w, h, d, c, x, y, z, p, s) => malla(new THREE.BoxGeometry(w, h, d), c, x, y, z, p, s);
+const cilindro = (rt, rb, h, c, x, y, z, p, seg = 10, s) => malla(new THREE.CylinderGeometry(rt, rb, h, seg), c, x, y, z, p, s);
+const cono = (r, h, c, x, y, z, p, seg = 7) => malla(new THREE.ConeGeometry(r, h, seg), c, x, y, z, p);
+
+/* ---------- Texturas de texto (se dibujan en un canvas, sin imágenes externas) ---------- */
+function texturaTexto(ancho, alto, dibujar) {
+  const cv = document.createElement('canvas');
+  cv.width = ancho; cv.height = alto;
+  const ctx = cv.getContext('2d');
+  dibujar(ctx, ancho, alto);
+  const t = new THREE.CanvasTexture(cv);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = 4;
+  return t;
+}
+function rombo(ctx, cx, cy, r, relleno, borde) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath();
+  ctx.fillStyle = relleno; ctx.fill();
+  ctx.lineWidth = r * 0.12; ctx.strokeStyle = borde; ctx.stroke();
+}
+function triangulo(ctx, cx, cy, r, relleno) {
+  ctx.beginPath();
+  ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r * 1.1, cy + r * 0.85); ctx.lineTo(cx - r * 1.1, cy + r * 0.85); ctx.closePath();
+  ctx.fillStyle = relleno; ctx.fill();
+  ctx.lineWidth = r * 0.16; ctx.strokeStyle = '#111'; ctx.lineJoin = 'round'; ctx.stroke();
+  ctx.fillStyle = '#111';
+  ctx.font = `900 ${r * 1.1}px system-ui, sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText('!', cx, cy + r * 0.25);
+}
+const texEtiquetaRP = texturaTexto(128, 140, (c, w, h) => {
+  c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
+  c.strokeStyle = '#d64541'; c.lineWidth = 8; c.strokeRect(4, 4, w - 8, h - 8);
+  c.fillStyle = '#111'; c.font = '900 17px system-ui, sans-serif'; c.textAlign = 'center';
+  c.fillText('RESIDUO', w / 2, 30); c.fillText('PELIGROSO', w / 2, 50);
+  rombo(c, w / 2, 92, 32, '#ff8c1a', '#111');
+  c.font = '900 16px system-ui, sans-serif'; c.fillText('T', w / 2, 98);
+});
+const texEtiquetaAceite = texturaTexto(128, 140, (c, w, h) => {
+  c.fillStyle = '#ffc400'; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#111'; c.font = '900 19px system-ui, sans-serif'; c.textAlign = 'center';
+  c.fillText('ACEITE', w / 2, 34); c.fillText('USADO', w / 2, 58);
+  rombo(c, w / 2, 100, 28, '#fff', '#111');
+  c.font = '900 14px system-ui, sans-serif'; c.fillText('T', w / 2, 105);
+});
+const texLetrero = texturaTexto(512, 220, (c, w, h) => {
+  c.fillStyle = '#ffc400'; c.fillRect(0, 0, w, h);
+  c.lineWidth = 14; c.strokeStyle = '#111'; c.strokeRect(7, 7, w - 14, h - 14);
+  triangulo(c, 90, 100, 52, '#ffc400');
+  c.fillStyle = '#111'; c.textAlign = 'left';
+  c.font = '900 40px system-ui, sans-serif'; c.fillText('ALMACÉN TEMPORAL', 170, 70);
+  c.font = '900 34px system-ui, sans-serif'; c.fillText('DE RESIDUOS', 170, 116); c.fillText('PELIGROSOS', 170, 158);
+  c.font = '700 22px system-ui, sans-serif'; c.fillText('Acceso restringido · No fumar', 40, 200);
+});
+const texExtintor = texturaTexto(128, 160, (c, w, h) => {
+  c.fillStyle = '#d64541'; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#fff'; c.textAlign = 'center';
+  c.fillRect(48, 30, 32, 74); c.fillRect(56, 18, 16, 14); c.fillRect(72, 20, 22, 8);
+  c.font = '900 22px system-ui, sans-serif'; c.fillText('EXTINTOR', w / 2, 140);
+});
+const texSalida = texturaTexto(256, 96, (c, w, h) => {
+  c.fillStyle = '#2e9e5b'; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#fff'; c.font = '900 52px system-ui, sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle';
+  c.fillText('SALIDA', w / 2, h / 2 + 3);
+});
+const texEPP = texturaTexto(256, 256, (c, w, h) => {
+  c.fillStyle = '#fff'; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#1f5fa8'; c.beginPath(); c.arc(w / 2, 110, 86, 0, Math.PI * 2); c.fill();
+  c.fillStyle = '#fff';
+  c.beginPath(); c.arc(w / 2, 120, 52, Math.PI, 0); c.fill(); c.fillRect(w / 2 - 70, 116, 140, 16);
+  c.fillStyle = '#111'; c.font = '900 26px system-ui, sans-serif'; c.textAlign = 'center';
+  c.fillText('USO OBLIGATORIO', w / 2, 222); c.fillText('DE CASCO', w / 2, 248);
+});
+const texKit = texturaTexto(256, 128, (c, w, h) => {
+  c.fillStyle = '#ffc400'; c.fillRect(0, 0, w, h);
+  c.fillStyle = '#111'; c.font = '900 34px system-ui, sans-serif'; c.textAlign = 'center';
+  c.fillText('KIT', w / 2, 50); c.fillText('ANTIDERRAMES', w / 2, 96);
+});
+function texBitacora(completa) {
+  return texturaTexto(128, 170, (c, w, h) => {
+    c.fillStyle = '#fbfbf6'; c.fillRect(0, 0, w, h);
+    c.fillStyle = '#111'; c.font = '900 17px system-ui, sans-serif'; c.textAlign = 'center';
+    c.fillText('BITÁCORA', w / 2, 24);
+    c.strokeStyle = '#9aa3ab'; c.lineWidth = 2;
+    for (let i = 0; i < 7; i++) {
+      const y = 44 + i * 17;
+      c.beginPath(); c.moveTo(10, y); c.lineTo(w - 10, y); c.stroke();
+      if (completa || i < 2) { c.fillStyle = '#1f5fa8'; c.fillRect(14, y - 10, 40 + (i * 13) % 50, 6); }
+    }
+    if (completa) {
+      c.strokeStyle = '#2e9e5b'; c.lineWidth = 12; c.lineCap = 'round';
+      c.beginPath(); c.moveTo(34, 112); c.lineTo(58, 138); c.lineTo(100, 84); c.stroke();
+    } else {
+      c.fillStyle = '#d64541'; c.font = '900 52px system-ui, sans-serif'; c.fillText('?', w / 2 + 20, 140);
+    }
+  });
+}
+function cartel(textura, w, h, x, y, z, rotY = 0, padre = scene) {
+  const m = new THREE.Mesh(new THREE.PlaneGeometry(w, h), new THREE.MeshLambertMaterial({ map: textura }));
+  m.position.set(x, y, z); m.rotation.y = rotY;
+  padre.add(m);
+  return m;
+}
+
+/* =====================================================================
+   ESCENARIO
+   ===================================================================== */
+const MIN_X = -11.6, MAX_X = 11.6, MIN_Z = -8.6, MAX_Z = 8.6;
+const colisionadores = [];
+function colision(x, z, w, d) {
+  const c = { minX: x - w / 2, maxX: x + w / 2, minZ: z - d / 2, maxZ: z + d / 2, activo: true };
+  colisionadores.push(c);
+  return c;
+}
+
+// Suelo exterior (planta) y piso del almacén
+caja(90, 0.2, 90, 0x5d646b, 0, -0.2, 0, scene, false);
+caja(24.6, 0.2, 18.6, 0x9ea4aa, 0, -0.1, 0, scene, false);
+
+// Líneas amarillas en el piso
+const lineaY = 0.012;
+function linea(x1, z1, x2, z2, color = 0xffc400, grosor = 0.14) {
+  const largo = Math.hypot(x2 - x1, z2 - z1);
+  const m = caja(largo, 0.02, grosor, color, (x1 + x2) / 2, lineaY, (z1 + z2) / 2, scene, false);
+  m.rotation.y = -Math.atan2(z2 - z1, x2 - x1);
+  m.castShadow = false;
+}
+function rectangulo(x1, z1, x2, z2, color, grosor) {
+  linea(x1, z1, x2, z1, color, grosor); linea(x2, z1, x2, z2, color, grosor);
+  linea(x2, z2, x1, z2, color, grosor); linea(x1, z2, x1, z1, color, grosor);
+}
+rectangulo(-11.4, -8.8, -5.9, -4.9);     // zona tambos residuos
+rectangulo(5.4, -8.8, 10.4, -5.7);       // zona aceite usado
+rectangulo(-11.8, -3.6, 11.8, 4.6);      // pasillo
+linea(-3.2, -8.8, -3.2, -3.6); linea(0.6, -8.8, 0.6, -3.6); // pasillo hacia la puerta
+// zona libre frente al extintor (rojo/blanco)
+for (let i = 0; i < 6; i++) caja(1.6, 0.02, 0.3, i % 2 ? 0xffffff : 0xd64541, -11.15, lineaY, 0.75 + i * 0.3, scene, false);
+
+// Muros (fondo e izquierda) y barandal (frente y derecha)
+const MURO = 0xbfc4c9, MURO_BASE = 0x3f454b;
+caja(25, 3, 0.5, MURO, 0, 1.5, -9.25); colision(0, -9.25, 25, 0.5);
+caja(0.5, 3, 19, MURO, -12.25, 1.5, 0); colision(-12.25, 0, 0.5, 19);
+caja(24.9, 0.5, 0.06, MURO_BASE, 0, 0.25, -8.99, scene, false);
+caja(0.06, 0.5, 18.4, MURO_BASE, -11.99, 0.25, 0, scene, false);
+caja(25, 0.15, 0.6, 0xffc400, 0, 3.05, -9.25);
+caja(0.6, 0.15, 19, 0xffc400, -12.25, 3.05, 0);
+function barandal(x1, z1, x2, z2) {
+  const largo = Math.hypot(x2 - x1, z2 - z1), n = Math.round(largo / 2);
+  for (let i = 0; i <= n; i++) {
+    const t = i / n, x = x1 + (x2 - x1) * t, z = z1 + (z2 - z1) * t;
+    cilindro(0.09, 0.09, 1.1, 0xffc400, x, 0.55, z, scene, 6);
+  }
+  const r = caja(largo, 0.1, 0.1, 0xffc400, (x1 + x2) / 2, 1.05, (z1 + z2) / 2);
+  r.rotation.y = -Math.atan2(z2 - z1, x2 - x1);
+  const r2 = caja(largo, 0.08, 0.08, 0x23272b, (x1 + x2) / 2, 0.6, (z1 + z2) / 2);
+  r2.rotation.y = r.rotation.y;
+}
+barandal(-12, 9.1, 12.1, 9.1); colision(0, 9.25, 26, 0.5);
+barandal(12.1, -9, 12.1, 9.1); colision(12.25, 0, 0.5, 19);
+
+// Puerta con letrero de salida
+caja(2.8, 2.8, 0.12, 0x3f454b, -1.3, 1.4, -8.96, scene, false);
+caja(1.15, 2.5, 0.08, 0x2e7d55, -1.9, 1.25, -8.88, scene, false);
+caja(1.15, 2.5, 0.08, 0x2e7d55, -0.7, 1.25, -8.88, scene, false);
+caja(0.5, 0.5, 0.04, 0xbcd7e6, -1.9, 1.8, -8.83, scene, false);
+caja(0.5, 0.5, 0.04, 0xbcd7e6, -0.7, 1.8, -8.83, scene, false);
+caja(0.08, 0.3, 0.1, 0xd5d9dd, -1.4, 1.2, -8.82, scene, false);
+caja(0.08, 0.3, 0.1, 0xd5d9dd, -1.2, 1.2, -8.82, scene, false);
+cartel(texSalida, 1.2, 0.45, -1.3, 2.62, -8.88);
+
+// Letrero de EPP en el muro izquierdo
+cartel(texEPP, 1.1, 1.1, -11.98, 1.9, -1.8, Math.PI / 2);
+
+// Kit antiderrames (gabinete) junto al barandal derecho
+caja(1.2, 1.5, 0.8, 0xffc400, 11.2, 0.75, -2.6); colision(11.2, -2.6, 1.2, 0.8);
+cartel(texKit, 1.0, 0.5, 10.59, 1.0, -2.6, -Math.PI / 2);
+caja(0.04, 1.3, 0.04, 0x23272b, 10.59, 0.75, -2.3, scene, false);
+
+// Tarima con cajas (sin hallazgo, solo decoración)
+function tarima(x, z, padre = scene) {
+  const g = new THREE.Group(); g.position.set(x, 0, z); padre.add(g);
+  for (let i = -1; i <= 1; i++) caja(1.4, 0.1, 0.3, 0xa77b4f, 0, 0.17, i * 0.5, g);
+  for (let i = -1; i <= 1; i++) caja(0.2, 0.12, 1.3, 0x8a6440, i * 0.6, 0.06, 0, g);
+  return g;
+}
+const t1 = tarima(4.2, 7.0);
+caja(0.6, 0.55, 0.6, 0xc8955f, -0.3, 0.5, -0.3, t1); caja(0.6, 0.55, 0.6, 0xb7895a, 0.32, 0.5, -0.25, t1);
+caja(0.6, 0.55, 0.6, 0xc8955f, 0.0, 0.5, 0.33, t1); caja(0.6, 0.5, 0.6, 0xb7895a, 0.0, 1.03, 0.0, t1);
+colision(4.2, 7.0, 1.5, 1.4);
+// Conos de seguridad
+for (const [x, z] of [[-4.6, 6.8], [-3.6, 7.4], [9.8, 7.6]]) {
+  cono(0.28, 0.75, 0xff7a1a, x, 0.4, z); caja(0.6, 0.06, 0.6, 0xff7a1a, x, 0.03, z);
+  cilindro(0.17, 0.2, 0.12, 0xffffff, x, 0.5, z, scene, 7);
+  colision(x, z, 0.6, 0.6);
+}
+
+/* ---------- Planta industrial alrededor (decoración) ---------- */
+function nave(x, z, w, h, d, color) {
+  caja(w, h, d, color, x, h / 2, z);
+  const techo = caja(w + 0.4, 0.4, d + 0.4, 0x6b7279, x, h + 0.2, z);
+  techo.castShadow = false;
+}
+nave(-4, -17, 14, 6, 8, 0xd5d9dd);
+nave(9, -15, 8, 4, 6, 0xb5bcc2);
+nave(-20, -2, 8, 5, 12, 0xc9ced2);
+cilindro(0.7, 0.9, 11, 0xd5d9dd, -8, 5.5, -19); cilindro(0.75, 0.75, 0.7, 0xd64541, -8, 9.8, -19);
+cilindro(0.5, 0.7, 9, 0xbfc4c9, -5.5, 4.5, -20.5); cilindro(0.55, 0.55, 0.6, 0xd64541, -5.5, 8, -20.5);
+for (const [x, z] of [[15.5, -6], [15.5, -2.5]]) {
+  cilindro(1.4, 1.4, 4, 0xeef0ee, x, 2, z, scene, 12); cono(1.45, 0.7, 0xd5d9dd, x, 4.35, z, scene, 12);
+}
+caja(0.3, 0.3, 4.2, 0x8a939b, 15.5, 3.2, -4.25);
+function arbol(x, z, s = 1) {
+  cilindro(0.15 * s, 0.2 * s, 0.9 * s, 0x6e4d2f, x, 0.45 * s, z, scene, 6);
+  cono(0.95 * s, 1.6 * s, 0x2e9e5b, x, 1.6 * s, z, scene, 7);
+  cono(0.7 * s, 1.2 * s, 0x3cb371, x, 2.4 * s, z, scene, 7);
+}
+[[-16, 12], [-10, 14], [3, 14], [9, 13.5], [18, 10], [17, 4], [20, -10], [-19, 9], [14, 15], [-3, 16]]
+  .forEach(([x, z], i) => arbol(x, z, 0.9 + (i % 3) * 0.2));
+for (let i = 0; i < 6; i++) caja(0.12, 0.02, 2.4, 0xffffff, -6 + i * 2.6, -0.09, 12.2, scene, false);
+caja(1.9, 1.2, 1.1, 0x2e9e5b, -4.7, 0.6, 12.2); caja(1.2, 0.6, 1.0, 0x23272b, -4.5, 1.45, 12.2); // carrito eléctrico
+
+/* ---------- Tambos ---------- */
+function tambo(x, z, color, etiqueta, padre = scene, y0 = 0) {
+  const g = new THREE.Group(); g.position.set(x, y0, z); padre.add(g);
+  cilindro(0.42, 0.42, 1.2, color, 0, 0.6, 0, g, 12);
+  const aro = new THREE.Color(color).multiplyScalar(0.7).getHex();
+  cilindro(0.44, 0.44, 0.06, aro, 0, 0.4, 0, g, 12);
+  cilindro(0.44, 0.44, 0.06, aro, 0, 0.82, 0, g, 12);
+  cilindro(0.07, 0.07, 0.06, 0x23272b, 0.18, 1.23, 0.1, g, 6);
+  let etq = null;
+  if (etiqueta) {
+    etq = cartel(etiqueta, 0.46, 0.5, 0.31, 0.62, 0.31, Math.PI / 4, g);
+  }
+  return { grupo: g, etiqueta: etq };
+}
+function charola(x, z, w, d, padre = scene) {
+  const g = new THREE.Group(); g.position.set(x, 0, z); padre.add(g);
+  caja(w, 0.1, d, 0x2e9e5b, 0, 0.05, 0, g);
+  caja(w, 0.22, 0.08, 0x1f7442, 0, 0.13, d / 2, g); caja(w, 0.22, 0.08, 0x1f7442, 0, 0.13, -d / 2, g);
+  caja(0.08, 0.22, d, 0x1f7442, w / 2, 0.13, 0, g); caja(0.08, 0.22, d, 0x1f7442, -w / 2, 0.13, 0, g);
+  return g;
+}
+
+/* =====================================================================
+   HALLAZGOS: objetos de cada uno + su función "corregir"
+   ===================================================================== */
+// 1. Tambo sin etiqueta (sobre una charola con otros tambos etiquetados)
+charola(-8.5, -7.05, 3.6, 2.3);
+const AZUL = 0x2f6db5;
+for (const [x, z] of [[-9.6, -7.6], [-8.5, -7.6], [-7.4, -7.6], [-9.6, -6.5], [-8.5, -6.5]]) tambo(x, z, AZUL, texEtiquetaRP, scene, 0.1);
+const tamboSinEtiqueta = tambo(-7.4, -6.5, AZUL, texEtiquetaRP, scene, 0.1);
+tamboSinEtiqueta.etiqueta.visible = false;
+colision(-8.5, -7.05, 3.7, 2.4);
+HALLAZGOS[0].corregir = (si) => { tamboSinEtiqueta.etiqueta.visible = si; };
+
+// 2. Tambos de aceite usado sin charola (con mancha)
+const grupoAceite = new THREE.Group(); scene.add(grupoAceite);
+const tambosAceite = [6.5, 7.6, 8.7].map((x) => tambo(x, -7.2, 0x2b2f33, texEtiquetaAceite, grupoAceite));
+const mancha = malla(new THREE.CircleGeometry(1, 9), new THREE.MeshLambertMaterial({ color: 0x2a2a22, transparent: true, opacity: 0.85 }), 7.9, 0.015, -6.2, scene, false);
+mancha.rotation.x = -Math.PI / 2; mancha.scale.set(1.3, 0.7, 1);
+const charolaAceite = charola(7.6, -7.2, 3.6, 1.3);
+colision(7.6, -7.2, 3.7, 1.3);
+HALLAZGOS[1].corregir = (si) => {
+  charolaAceite.visible = si; mancha.visible = !si;
+  tambosAceite.forEach((t) => { t.grupo.position.y = si ? 0.1 : 0; });
+};
+
+// 3. Bitácora incompleta (portapapeles sobre una mesa)
+const mesa = new THREE.Group(); mesa.position.set(8.5, 0, 2.5); scene.add(mesa);
+caja(2.4, 0.12, 1.2, 0x7a8590, 0, 0.95, 0, mesa);
+for (const [x, z] of [[-1.1, -0.5], [1.1, -0.5], [-1.1, 0.5], [1.1, 0.5]]) caja(0.1, 0.9, 0.1, 0x3f454b, x, 0.45, z, mesa);
+caja(0.62, 0.5, 0.6, 0x3f454b, 0.2, 0.25, 1.15, mesa); caja(0.62, 0.6, 0.1, 0x3f454b, 0.2, 0.75, 1.42, mesa); // silla
+const portapapeles = new THREE.Group(); portapapeles.position.set(-0.2, 1.02, 0.05); portapapeles.rotation.y = 0.35; mesa.add(portapapeles);
+caja(0.62, 0.04, 0.82, 0x8a6440, 0, 0, 0, portapapeles);
+caja(0.24, 0.05, 0.08, 0xbfc4c9, 0, 0.03, -0.36, portapapeles);
+const hoja = new THREE.Mesh(new THREE.PlaneGeometry(0.54, 0.7), new THREE.MeshLambertMaterial({ map: texBitacora(false) }));
+hoja.rotation.x = -Math.PI / 2; hoja.position.set(0, 0.025, 0.03); portapapeles.add(hoja);
+const texBitacoraOk = texBitacora(true), texBitacoraMal = hoja.material.map;
+caja(0.3, 0.25, 0.3, 0xffc400, 0.8, 1.14, -0.1, mesa); // casco sobre la mesa
+colision(8.5, 2.5, 2.5, 1.3); colision(8.7, 3.7, 0.7, 0.8);
+HALLAZGOS[2].corregir = (si) => { hoja.material.map = si ? texBitacoraOk : texBitacoraMal; hoja.material.needsUpdate = true; };
+
+// 4. Extintor obstruido por cajas
+const extintor = new THREE.Group(); extintor.position.set(-11.72, 0, 1.5); scene.add(extintor);
+cilindro(0.2, 0.2, 0.75, 0xd64541, 0, 0.95, 0, extintor, 10);
+cono(0.2, 0.14, 0xd64541, 0, 1.39, 0, extintor, 10);
+caja(0.12, 0.12, 0.12, 0x23272b, 0, 1.5, 0, extintor);
+caja(0.05, 0.5, 0.05, 0x23272b, 0.16, 1.15, 0.12, extintor);
+caja(0.1, 0.08, 0.3, 0x23272b, 0, 1.55, 0.1, extintor);
+caja(0.04, 0.5, 0.5, 0x3f454b, -0.2, 1.05, 0, extintor, false);
+cartel(texExtintor, 0.6, 0.75, -11.98, 2.25, 1.5, Math.PI / 2);
+const cajas = new THREE.Group(); scene.add(cajas);
+caja(0.85, 0.8, 0.85, 0xc8955f, -11.0, 0.4, 1.05, cajas);
+caja(0.85, 0.8, 0.85, 0xb7895a, -11.05, 0.4, 1.95, cajas);
+caja(0.8, 0.75, 0.8, 0xd3a26e, -11.0, 1.18, 1.5, cajas);
+caja(0.7, 0.6, 0.7, 0xb7895a, -10.15, 0.3, 1.45, cajas);
+for (const c of cajas.children) c.rotation.y = (Math.random() - 0.5) * 0.4;
+const colCajas = colision(-10.8, 1.5, 1.9, 1.9);
+colision(-11.75, 1.5, 0.5, 0.5);
+HALLAZGOS[3].corregir = (si) => { cajas.visible = !si; colCajas.activo = !si; };
+
+// 5. Falta el letrero del almacén (solo quedan los taquetes y la marca de pintura)
+const huecoLetrero = new THREE.Group(); scene.add(huecoLetrero);
+caja(2.4, 1.05, 0.02, 0xcfd3d7, 1.6, 2.0, -8.995, huecoLetrero, false);
+for (const [x, y] of [[0.5, 2.42], [2.7, 2.42], [0.5, 1.58], [2.7, 1.58]]) caja(0.08, 0.08, 0.08, 0x3f454b, x, y, -8.97, huecoLetrero, false);
+const letrero = cartel(texLetrero, 2.4, 1.03, 1.6, 2.0, -8.95);
+HALLAZGOS[4].corregir = (si) => { letrero.visible = si; huecoLetrero.visible = !si; };
+
+/* ---------- Marcadores "!" y anillos ---------- */
+const matAmarilloBrillante = new THREE.MeshBasicMaterial({ color: 0xffc400 });
+const matContorno = new THREE.MeshBasicMaterial({ color: 0x23272b, side: THREE.BackSide });
+function exclamacion() {
+  const g = new THREE.Group();
+  const barra = new THREE.BoxGeometry(0.3, 0.8, 0.3), punto = new THREE.BoxGeometry(0.3, 0.3, 0.3);
+  const piezas = [[barra, 0.74], [punto, 0]];
+  for (const [geo, y] of piezas) {
+    const m = new THREE.Mesh(geo, matAmarilloBrillante); m.position.y = y; g.add(m);
+    const o = new THREE.Mesh(geo, matContorno); o.position.y = y; o.scale.setScalar(1.35); g.add(o);
+  }
+  return g;
+}
+function iconoResultado(bien) {
+  const g = new THREE.Group();
+  const m = new THREE.MeshBasicMaterial({ color: bien ? 0x2e9e5b : 0xd64541 });
+  if (bien) {
+    const a = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.45, 0.2), m); a.position.set(-0.2, 0.05, 0); a.rotation.z = Math.PI / 4; g.add(a);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.85, 0.2), m); b.position.set(0.12, 0.2, 0); b.rotation.z = -Math.PI / 5; g.add(b);
+  } else {
+    const a = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 0.2), m); a.rotation.z = Math.PI / 4; g.add(a);
+    const b = new THREE.Mesh(new THREE.BoxGeometry(0.2, 0.8, 0.2), m); b.rotation.z = -Math.PI / 4; g.add(b);
+  }
+  g.visible = false;
+  return g;
+}
+HALLAZGOS.forEach((h) => {
+  h.marcador = exclamacion();
+  h.marcador.position.set(h.pos[0], h.altura, h.pos[1]);
+  scene.add(h.marcador);
+  h.icono = { bien: iconoResultado(true), mal: iconoResultado(false) };
+  for (const ic of Object.values(h.icono)) { ic.position.set(h.pos[0], h.altura - 0.2, h.pos[1]); scene.add(ic); }
+  h.anillo = new THREE.Mesh(new THREE.RingGeometry(0.95, 1.2, 28),
+    new THREE.MeshBasicMaterial({ color: 0xffc400, transparent: true, opacity: 0.6, side: THREE.DoubleSide, depthWrite: false }));
+  h.anillo.rotation.x = -Math.PI / 2;
+  h.anillo.position.set(h.pos[0], 0.03, h.pos[1]);
+  scene.add(h.anillo);
+});
+
+/* =====================================================================
+   JUGADOR (casco amarillo)
+   ===================================================================== */
+const jugador = new THREE.Group(); scene.add(jugador);
+const cuerpo = new THREE.Group(); jugador.add(cuerpo);
+const PIEL = 0xe0b48a, PANTALON = 0x2d3e50, CHALECO = 0x2e9e5b;
+const piernaI = new THREE.Group(), piernaD = new THREE.Group();
+piernaI.position.set(-0.15, 0.62, 0); piernaD.position.set(0.15, 0.62, 0);
+caja(0.22, 0.6, 0.24, PANTALON, 0, -0.3, 0, piernaI); caja(0.24, 0.12, 0.34, 0x23272b, 0, -0.56, 0.05, piernaI);
+caja(0.22, 0.6, 0.24, PANTALON, 0, -0.3, 0, piernaD); caja(0.24, 0.12, 0.34, 0x23272b, 0, -0.56, 0.05, piernaD);
+cuerpo.add(piernaI, piernaD);
+caja(0.58, 0.62, 0.34, CHALECO, 0, 0.94, 0, cuerpo);
+caja(0.6, 0.07, 0.36, 0xffc400, 0, 0.86, 0, cuerpo);  // franjas reflejantes
+caja(0.6, 0.07, 0.36, 0xffc400, 0, 1.06, 0, cuerpo);
+const brazoI = new THREE.Group(), brazoD = new THREE.Group();
+brazoI.position.set(-0.38, 1.2, 0); brazoD.position.set(0.38, 1.2, 0);
+caja(0.17, 0.55, 0.2, CHALECO, 0, -0.24, 0, brazoI); caja(0.15, 0.13, 0.15, PIEL, 0, -0.56, 0, brazoI);
+caja(0.17, 0.55, 0.2, CHALECO, 0, -0.24, 0, brazoD); caja(0.15, 0.13, 0.15, PIEL, 0, -0.56, 0, brazoD);
+cuerpo.add(brazoI, brazoD);
+caja(0.42, 0.4, 0.4, PIEL, 0, 1.47, 0, cuerpo);
+caja(0.06, 0.08, 0.02, 0x23272b, -0.1, 1.5, 0.205, cuerpo, false); // ojos
+caja(0.06, 0.08, 0.02, 0x23272b, 0.1, 1.5, 0.205, cuerpo, false);
+malla(new THREE.SphereGeometry(0.3, 10, 5, 0, Math.PI * 2, 0, Math.PI / 2), 0xffc400, 0, 1.64, 0, cuerpo); // casco
+cilindro(0.38, 0.38, 0.05, 0xffc400, 0, 1.65, 0.04, cuerpo, 12);  // ala del casco
+caja(0.06, 0.08, 0.5, 0xe6b000, 0, 1.9, 0, cuerpo, false);        // cresta
+jugador.position.set(0, 0, 5.5);
+
+// Flecha guía en el piso: apunta al hallazgo pendiente más cercano
+const flecha = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.7, 3), new THREE.MeshBasicMaterial({ color: 0xffc400, transparent: true, opacity: 0.9 }));
+flecha.rotation.x = Math.PI / 2;
+const flechaGrupo = new THREE.Group(); flechaGrupo.add(flecha); scene.add(flechaGrupo);
+
+/* =====================================================================
+   ENTRADA: teclado + joystick táctil
+   ===================================================================== */
+const teclas = new Set();
+const entrada = { jx: 0, jy: 0 };
+const MAPA = { KeyW: 'arriba', ArrowUp: 'arriba', KeyS: 'abajo', ArrowDown: 'abajo', KeyA: 'izq', ArrowLeft: 'izq', KeyD: 'der', ArrowRight: 'der' };
+window.addEventListener('keydown', (e) => {
+  if (MAPA[e.code]) { teclas.add(MAPA[e.code]); e.preventDefault(); }
+  if (estado.fase === 'tarjeta') {
+    const n = { Digit1: 0, Digit2: 1, Digit3: 2, Numpad1: 0, Numpad2: 1, Numpad3: 2, KeyA: 0, KeyB: 1, KeyC: 2 }[e.code];
+    const botones = document.querySelectorAll('#t-opciones .opcion');
+    if (n !== undefined && botones[n] && !botones[n].disabled) botones[n].click();
+  }
+});
+window.addEventListener('keyup', (e) => { if (MAPA[e.code]) teclas.delete(MAPA[e.code]); });
+window.addEventListener('blur', () => { teclas.clear(); soltarJoystick(); });
+
+const joy = $('#joy'), knob = $('#knob');
+let joyId = null, joyCentro = null, joyRadio = 60;
+function moverJoystick(e) {
+  let dx = e.clientX - joyCentro.x, dy = e.clientY - joyCentro.y;
+  const d = Math.hypot(dx, dy);
+  if (d > joyRadio) { dx *= joyRadio / d; dy *= joyRadio / d; }
+  knob.style.transform = `translate(calc(-50% + ${dx}px), calc(-50% + ${dy}px))`;
+  const nx = dx / joyRadio, ny = dy / joyRadio;
+  const mag = Math.hypot(nx, ny);
+  if (mag < 0.15) { entrada.jx = 0; entrada.jy = 0; } else { entrada.jx = nx; entrada.jy = -ny; }
+}
+function soltarJoystick() {
+  joyId = null; entrada.jx = 0; entrada.jy = 0;
+  knob.style.transform = 'translate(-50%,-50%)';
+}
+joy.addEventListener('pointerdown', (e) => {
+  e.preventDefault();
+  joyId = e.pointerId;
+  try { joy.setPointerCapture(e.pointerId); } catch (_) { /* sin captura */ }
+  const r = joy.getBoundingClientRect();
+  joyCentro = { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  joyRadio = r.width * 0.36;
+  moverJoystick(e);
+});
+joy.addEventListener('pointermove', (e) => { if (e.pointerId === joyId) moverJoystick(e); });
+for (const ev of ['pointerup', 'pointercancel', 'lostpointercapture']) joy.addEventListener(ev, (e) => { if (e.pointerId === joyId) soltarJoystick(); });
+document.addEventListener('contextmenu', (e) => e.preventDefault());
+
+/* =====================================================================
+   SONIDO (tonos generados, sin archivos)
+   ===================================================================== */
+let audio = null;
+function tono(frecs, dur = 0.14, tipo = 'sine', vol = 0.18) {
+  if (!audio) return;
+  const t0 = audio.currentTime;
+  frecs.forEach((f, i) => {
+    const o = audio.createOscillator(), g = audio.createGain();
+    o.type = tipo; o.frequency.value = f;
+    const t = t0 + i * dur;
+    g.gain.setValueAtTime(0.0001, t);
+    g.gain.exponentialRampToValueAtTime(vol, t + 0.02);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur * 1.6);
+    o.connect(g).connect(audio.destination);
+    o.start(t); o.stop(t + dur * 1.8);
+  });
+}
+const sonido = {
+  hallazgo: () => tono([660, 880], 0.1, 'triangle', 0.15),
+  bien: () => tono([523, 659, 784], 0.12, 'sine', 0.2),
+  mal: () => tono([220, 185], 0.2, 'triangle', 0.2),
+  fin: () => tono([523, 659, 784, 1047], 0.14, 'sine', 0.2),
+  clausura: () => tono([196, 165, 131], 0.28, 'triangle', 0.22)
+};
+
+/* =====================================================================
+   LÓGICA DEL JUEGO
+   ===================================================================== */
+function barajar(arr) {
+  const a = arr.slice();
+  for (let i = a.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [a[i], a[j]] = [a[j], a[i]]; }
+  return a;
+}
+function mostrar(id, si) { $(id).classList.toggle('oculto', !si); }
+
+function actualizarHUD() {
+  $('#multa').textContent = formatoDinero(estado.multa);
+  $('#contador').textContent = `${estado.resueltos.filter(Boolean).length}/${HALLAZGOS.length}`;
+  document.querySelectorAll('#hud-errores .punto').forEach((p, i) => p.classList.toggle('lleno', i < estado.errores));
+}
+
+function reiniciar() {
+  estado.multa = 0; estado.errores = 0; estado.aciertos = 0; estado.actual = -1;
+  estado.resueltos = HALLAZGOS.map(() => null);
+  estado.ordenOpciones = HALLAZGOS.map((h) => barajar([0, 1, 2]));
+  HALLAZGOS.forEach((h) => {
+    h.corregir(false);
+    h.marcador.visible = true; h.anillo.visible = true;
+    h.icono.bien.visible = false; h.icono.mal.visible = false;
+  });
+  jugador.position.set(0, 0, 5.5);
+  jugador.rotation.y = Math.PI;
+  objetivoCamara.set(0, 0, 4.5);
+  teclas.clear(); soltarJoystick();
+  actualizarHUD();
+}
+
+function iniciar() {
+  if (!audio) {
+    try { audio = new (window.AudioContext || window.webkitAudioContext)(); } catch (_) { audio = null; }
+  }
+  if (audio && audio.state === 'suspended') audio.resume();
+  reiniciar();
+  ['#inicio', '#clausura', '#aprobada'].forEach((id) => mostrar(id, false));
+  mostrar('#hud', true); mostrar('#pista', true); mostrar('#joy', esTactil);
+  $('#pista').classList.remove('desvanecer');
+  clearTimeout(iniciar.timer);
+  if (esTactil) iniciar.timer = setTimeout(() => $('#pista').classList.add('desvanecer'), 8000);
+  estado.fase = 'jugando';
+}
+
+function abrirTarjeta(i) {
+  const h = HALLAZGOS[i];
+  estado.fase = 'tarjeta'; estado.actual = i;
+  teclas.clear(); soltarJoystick();
+  sonido.hallazgo();
+  $('#t-num').textContent = i + 1;
+  $('#t-titulo').textContent = h.titulo;
+  $('#t-pregunta').textContent = h.pregunta;
+  const cont = $('#t-opciones');
+  cont.innerHTML = '';
+  estado.ordenOpciones[i].forEach((idxOpcion, pos) => {
+    const b = document.createElement('button');
+    b.className = 'opcion';
+    b.dataset.indice = idxOpcion;
+    b.innerHTML = `<span class="letra">${'ABC'[pos]}</span><span></span>`;
+    b.lastChild.textContent = h.opciones[idxOpcion];
+    b.addEventListener('click', () => responder(idxOpcion));
+    cont.appendChild(b);
+  });
+  mostrar('#t-feedback', false); mostrar('#t-continuar', false);
+  mostrar('#tarjeta', true);
+  $('#tarjeta .panel').scrollTop = 0;
+  mostrar('#pista', false); mostrar('#joy', false);
+}
+
+function responder(idx) {
+  const i = estado.actual, h = HALLAZGOS[i];
+  if (estado.resueltos[i]) return;
+  const bien = idx === h.correcta;
+  estado.resueltos[i] = bien ? 'bien' : 'mal';
+  document.querySelectorAll('#t-opciones .opcion').forEach((b) => {
+    const n = Number(b.dataset.indice);
+    b.disabled = true;
+    if (n === h.correcta) b.classList.add('correcta');
+    else if (n === idx) b.classList.add('incorrecta');
+  });
+  const fb = $('#t-feedback');
+  fb.className = bien ? 'bien' : 'mal';
+  if (bien) {
+    estado.aciertos++;
+    $('#t-res').textContent = '¡Correcto! Hallazgo atendido.';
+    sonido.bien();
+  } else {
+    estado.errores++;
+    estado.multa += h.multa;
+    $('#t-res').textContent = `Incorrecto: +${formatoDinero(h.multa)} de multa`;
+    sonido.mal();
+    const hm = $('#hud-multa'); hm.classList.remove('sube'); void hm.offsetWidth; hm.classList.add('sube');
+  }
+  $('#t-exp').textContent = h.explicacion;
+  $('#t-fund').textContent = h.fundamento;
+  // El hallazgo se corrige en el escenario y se marca con ✓ o ✗
+  h.corregir(true);
+  h.marcador.visible = false; h.anillo.visible = false;
+  h.icono[bien ? 'bien' : 'mal'].visible = true;
+  actualizarHUD();
+  const ultimo = estado.errores >= MAX_ERRORES || estado.resueltos.every(Boolean);
+  $('#t-continuar').textContent = estado.errores >= MAX_ERRORES ? 'Ver resultado' : (ultimo ? 'Ver resultado' : 'Continuar inspección');
+  mostrar('#t-continuar', true);
+  $('#t-continuar').focus({ preventScroll: true });
+  requestAnimationFrame(() => $('#t-continuar').scrollIntoView({ block: 'nearest', behavior: 'smooth' }));
+}
+
+function cerrarTarjeta() {
+  mostrar('#tarjeta', false);
+  if (estado.errores >= MAX_ERRORES) return terminar(false);
+  if (estado.resueltos.every(Boolean)) return terminar(true);
+  estado.fase = 'jugando';
+  mostrar('#pista', true); mostrar('#joy', esTactil);
+}
+
+function terminar(aprobada) {
+  estado.fase = 'fin';
+  mostrar('#hud', false); mostrar('#pista', false); mostrar('#joy', false);
+  const total = HALLAZGOS.length;
+  if (aprobada) {
+    const evitada = HALLAZGOS.reduce((s, h, i) => s + (estado.resueltos[i] === 'bien' ? h.multa : 0), 0);
+    $('#a-aciertos').textContent = `${estado.aciertos}/${total}`;
+    $('#a-errores').textContent = estado.errores;
+    $('#a-evitada').textContent = formatoDinero(evitada);
+    $('#a-multa').textContent = formatoDinero(estado.multa);
+    const lista = $('#lista-resultados'); lista.innerHTML = '';
+    HALLAZGOS.forEach((h, i) => {
+      const li = document.createElement('li');
+      const ok = estado.resueltos[i] === 'bien';
+      li.innerHTML = `<span class="${ok ? 'ok' : 'no'}">${ok ? '✓' : '✗'}</span><span></span>`;
+      li.lastChild.textContent = h.titulo;
+      lista.appendChild(li);
+    });
+    mostrar('#aprobada', true);
+    sonido.fin();
+    $('#btn-otra').focus({ preventScroll: true });
+  } else {
+    $('#c-aciertos').textContent = estado.aciertos;
+    $('#c-hallazgos').textContent = `${estado.resueltos.filter(Boolean).length}/${total}`;
+    $('#c-multa').textContent = formatoDinero(estado.multa);
+    mostrar('#clausura', true);
+    sonido.clausura();
+    $('#btn-reintentar').focus({ preventScroll: true });
+  }
+}
+
+$('#btn-iniciar').addEventListener('click', iniciar);
+$('#btn-reintentar').addEventListener('click', iniciar);
+$('#btn-otra').addEventListener('click', iniciar);
+$('#t-continuar').addEventListener('click', cerrarTarjeta);
+
+/* =====================================================================
+   MOVIMIENTO Y COLISIONES
+   ===================================================================== */
+const RADIO_JUGADOR = 0.4;
+// En vista isométrica "arriba" de la pantalla es la diagonal (-x, -z) del mundo.
+const ADELANTE = new THREE.Vector3(-1, 0, -1).normalize();
+const DERECHA = new THREE.Vector3(1, 0, -1).normalize();
+const dir = new THREE.Vector3();
+
+function resolverColisiones(p) {
+  p.x = Math.min(MAX_X, Math.max(MIN_X, p.x));
+  p.z = Math.min(MAX_Z, Math.max(MIN_Z, p.z));
+  for (const c of colisionadores) {
+    if (!c.activo) continue;
+    const cx = Math.max(c.minX, Math.min(p.x, c.maxX));
+    const cz = Math.max(c.minZ, Math.min(p.z, c.maxZ));
+    let dx = p.x - cx, dz = p.z - cz;
+    const d2 = dx * dx + dz * dz;
+    if (d2 >= RADIO_JUGADOR * RADIO_JUGADOR) continue;
+    if (d2 > 1e-8) {
+      const d = Math.sqrt(d2), empuje = RADIO_JUGADOR - d;
+      p.x += (dx / d) * empuje; p.z += (dz / d) * empuje;
+    } else {
+      // El centro quedó dentro de la caja: sacarlo por el lado más cercano
+      const opciones = [
+        [c.minX - RADIO_JUGADOR - p.x, 0], [c.maxX + RADIO_JUGADOR - p.x, 0],
+        [0, c.minZ - RADIO_JUGADOR - p.z], [0, c.maxZ + RADIO_JUGADOR - p.z]
+      ].sort((a, b) => Math.abs(a[0] + a[1]) - Math.abs(b[0] + b[1]));
+      p.x += opciones[0][0]; p.z += opciones[0][1];
+    }
+  }
+}
+
+let tiempoCaminando = 0;
+function actualizarJugador(dt) {
+  let ix = entrada.jx, iy = entrada.jy;
+  if (teclas.has('der')) ix += 1;
+  if (teclas.has('izq')) ix -= 1;
+  if (teclas.has('arriba')) iy += 1;
+  if (teclas.has('abajo')) iy -= 1;
+  const mag = Math.hypot(ix, iy);
+  if (estado.fase === 'jugando' && mag > 0.01) {
+    if (mag > 1) { ix /= mag; iy /= mag; }
+    dir.set(0, 0, 0).addScaledVector(DERECHA, ix).addScaledVector(ADELANTE, iy);
+    const vel = VELOCIDAD * Math.min(1, mag);
+    jugador.position.addScaledVector(dir, vel * dt);
+    resolverColisiones(jugador.position);
+    // Girar hacia donde camina (suavizado)
+    const objetivo = Math.atan2(dir.x, dir.z);
+    let delta = objetivo - jugador.rotation.y;
+    delta = Math.atan2(Math.sin(delta), Math.cos(delta));
+    jugador.rotation.y += delta * Math.min(1, dt * 12);
+    tiempoCaminando += dt * 10 * Math.min(1, mag);
+    const s = Math.sin(tiempoCaminando);
+    piernaI.rotation.x = s * 0.6; piernaD.rotation.x = -s * 0.6;
+    brazoI.rotation.x = -s * 0.5; brazoD.rotation.x = s * 0.5;
+    cuerpo.position.y = Math.abs(Math.cos(tiempoCaminando)) * 0.06;
+  } else {
+    const k = Math.min(1, dt * 10);
+    piernaI.rotation.x *= 1 - k; piernaD.rotation.x *= 1 - k;
+    brazoI.rotation.x *= 1 - k; brazoD.rotation.x *= 1 - k;
+    cuerpo.position.y *= 1 - k;
+  }
+}
+
+function revisarHallazgos() {
+  if (estado.fase !== 'jugando') return;
+  for (let i = 0; i < HALLAZGOS.length; i++) {
+    if (estado.resueltos[i]) continue;
+    const h = HALLAZGOS[i];
+    const d = Math.hypot(jugador.position.x - h.pos[0], jugador.position.z - h.pos[1]);
+    if (d < RADIO_ACTIVACION) { abrirTarjeta(i); return; }
+  }
+}
+
+function actualizarFlecha(t) {
+  let mejor = null, dMin = Infinity;
+  HALLAZGOS.forEach((h, i) => {
+    if (estado.resueltos[i]) return;
+    const d = Math.hypot(h.pos[0] - jugador.position.x, h.pos[1] - jugador.position.z);
+    if (d < dMin) { dMin = d; mejor = h; }
+  });
+  flechaGrupo.visible = estado.fase === 'jugando' && mejor !== null && dMin > 3.2;
+  if (!flechaGrupo.visible) return;
+  const ang = Math.atan2(mejor.pos[0] - jugador.position.x, mejor.pos[1] - jugador.position.z);
+  const r = 1.0 + Math.sin(t * 5) * 0.08;
+  flechaGrupo.position.set(jugador.position.x + Math.sin(ang) * r, 0.06, jugador.position.z + Math.cos(ang) * r);
+  flechaGrupo.rotation.y = ang;
+}
+
+/* =====================================================================
+   CÁMARA Y BUCLE PRINCIPAL
+   ===================================================================== */
+function ajustarTamano() {
+  const w = window.innerWidth, h = window.innerHeight, aspecto = w / h;
+  renderer.setSize(w, h);
+  // Mostramos unas 15 unidades en el lado corto de la pantalla (más zoom en celular vertical)
+  let mitadAlto, mitadAncho;
+  if (aspecto >= 1) { mitadAlto = 7.6; mitadAncho = mitadAlto * aspecto; }
+  else { mitadAncho = 6.4; mitadAlto = mitadAncho / aspecto; }
+  Object.assign(camara, { left: -mitadAncho, right: mitadAncho, top: mitadAlto, bottom: -mitadAlto });
+  camara.updateProjectionMatrix();
+}
+window.addEventListener('resize', ajustarTamano);
+ajustarTamano();
+
+const reloj = new THREE.Clock();
+const objetivoTemp = new THREE.Vector3();
+function bucle() {
+  requestAnimationFrame(bucle);
+  const dt = Math.min(reloj.getDelta(), 0.05);
+  const t = reloj.elapsedTime;
+
+  if (estado.fase === 'jugando') {
+    actualizarJugador(dt);
+    revisarHallazgos();
+  } else {
+    actualizarJugador(dt);
+  }
+  actualizarFlecha(t);
+
+  // Animación de marcadores
+  HALLAZGOS.forEach((h, i) => {
+    const fase = t * 2.4 + i;
+    h.marcador.position.y = h.altura + Math.sin(fase) * 0.15;
+    h.marcador.quaternion.copy(camara.quaternion);
+    h.marcador.rotateZ(Math.sin(fase * 0.7) * 0.12);
+    const s = 1 + (Math.sin(t * 3 + i) * 0.5 + 0.5) * 0.25;
+    h.anillo.scale.set(s, s, s);
+    h.anillo.material.opacity = 0.75 - (s - 1) * 1.6;
+    for (const ic of Object.values(h.icono)) {
+      ic.quaternion.copy(camara.quaternion);
+      ic.position.y = h.altura - 0.2 + Math.sin(fase) * 0.08;
+    }
+  });
+
+  // Cámara isométrica que sigue al jugador (suavizada y limitada al almacén)
+  objetivoTemp.set(
+    Math.max(-7, Math.min(7, jugador.position.x)), 0,
+    Math.max(-5.5, Math.min(6, jugador.position.z))
+  );
+  objetivoCamara.lerp(objetivoTemp, Math.min(1, dt * 4));
+  camara.position.copy(objetivoCamara).add(OFFSET_CAMARA);
+  camara.lookAt(objetivoCamara);
+
+  renderer.render(scene, camara);
+}
+
+reiniciar();
+camara.position.copy(objetivoCamara).add(OFFSET_CAMARA);
+camara.lookAt(objetivoCamara);
+bucle();
+window.__enviListo = true;
+
+// Ganchos de depuración (útiles para pruebas automáticas; no afectan el juego)
+window.__envi = {
+  estado,
+  teletransportar(x, z) { jugador.position.set(x, 0, z); },
+  hallazgos: HALLAZGOS.map((h) => ({ titulo: h.titulo, pos: h.pos, correcta: h.correcta }))
+};
+</script>
+</body>
+</html>
